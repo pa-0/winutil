@@ -27,7 +27,7 @@ function Invoke-WPFUIElements {
 
     $window = $sync["Form"]
 
-    $theme = $sync.configs.themes.$ctttheme
+    $theme = $sync.Form.Resources
     $borderstyle = $window.FindResource("BorderStyle")
     $HoverTextBlockStyle = $window.FindResource("HoverTextBlockStyle")
     $ColorfulToggleSwitchStyle = $window.FindResource("ColorfulToggleSwitchStyle")
@@ -98,6 +98,7 @@ function Invoke-WPFUIElements {
             $entrycount = $configHashtable.Keys.Count + $organizedData["0"].Keys.Count
             $maxcount = [Math]::Round($entrycount / $columncount + 0.5)
         }
+
     }
 
     # Iterate through 'organizedData' by panel, category, and application
@@ -105,7 +106,7 @@ function Invoke-WPFUIElements {
     foreach ($panelKey in ($organizedData.Keys | Sort-Object)) {
         # Create a Border for each column
         $border = New-Object Windows.Controls.Border
-        $border.VerticalAlignment = "Stretch" # Ensure the border stretches vertically
+        $border.VerticalAlignment = "Stretch"
         [System.Windows.Controls.Grid]::SetColumn($border, $panelcount)
         $border.style = $borderstyle
         $targetGrid.Children.Add($border) | Out-Null
@@ -114,9 +115,19 @@ function Invoke-WPFUIElements {
         $stackPanel = New-Object Windows.Controls.StackPanel
         $stackPanel.Background = [Windows.Media.Brushes]::Transparent
         $stackPanel.SnapsToDevicePixels = $true
-        $stackPanel.VerticalAlignment = "Stretch" # Ensure the stack panel stretches vertically
+        $stackPanel.VerticalAlignment = "Stretch"
         $border.Child = $stackPanel
         $panelcount++
+
+        # Add Windows Version label if this is the updates panel
+        if ($targetGridName -eq "updatespanel") {
+            $windowsVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName
+            $versionLabel = New-Object Windows.Controls.Label
+            $versionLabel.Content = "Windows Version: $windowsVersion"
+            $versionLabel.FontSize = $theme.FontSize
+            $versionLabel.HorizontalAlignment = "Left"
+            $stackPanel.Children.Add($versionLabel) | Out-Null
+        }
 
         foreach ($category in ($organizedData[$panelKey].Keys | Sort-Object)) {
             $count++
@@ -125,7 +136,7 @@ function Invoke-WPFUIElements {
                 if ($panelcount -eq $panelcount2) {
                     # Create a new Border for the new column
                     $border = New-Object Windows.Controls.Border
-                    $border.VerticalAlignment = "Stretch" # Ensure the border stretches vertically
+                    $border.VerticalAlignment = "Stretch"
                     [System.Windows.Controls.Grid]::SetColumn($border, $panelcount)
                     $border.style = $borderstyle
                     $targetGrid.Children.Add($border) | Out-Null
@@ -134,7 +145,7 @@ function Invoke-WPFUIElements {
                     $stackPanel = New-Object Windows.Controls.StackPanel
                     $stackPanel.Background = [Windows.Media.Brushes]::Transparent
                     $stackPanel.SnapsToDevicePixels = $true
-                    $stackPanel.VerticalAlignment = "Stretch" # Ensure the stack panel stretches vertically
+                    $stackPanel.VerticalAlignment = "Stretch"
                     $border.Child = $stackPanel
                     $panelcount++
                 }
@@ -142,7 +153,7 @@ function Invoke-WPFUIElements {
 
             $label = New-Object Windows.Controls.Label
             $label.Content = $category -replace ".*__", ""
-            $label.FontSize = $theme.FontSizeHeading
+            $label.FontSize = $theme.HeadingFontSize
             $label.FontFamily = $theme.HeaderFontFamily
             $stackPanel.Children.Add($label) | Out-Null
 
@@ -157,7 +168,7 @@ function Invoke-WPFUIElements {
                     if ($panelcount -eq $panelcount2) {
                         # Create a new Border for the new column
                         $border = New-Object Windows.Controls.Border
-                        $border.VerticalAlignment = "Stretch" # Ensure the border stretches vertically
+                        $border.VerticalAlignment = "Stretch"
                         [System.Windows.Controls.Grid]::SetColumn($border, $panelcount)
                         $border.style = $borderstyle
                         $targetGrid.Children.Add($border) | Out-Null
@@ -166,7 +177,7 @@ function Invoke-WPFUIElements {
                         $stackPanel = New-Object Windows.Controls.StackPanel
                         $stackPanel.Background = [Windows.Media.Brushes]::Transparent
                         $stackPanel.SnapsToDevicePixels = $true
-                        $stackPanel.VerticalAlignment = "Stretch" # Ensure the stack panel stretches vertically
+                        $stackPanel.VerticalAlignment = "Stretch"
                         $border.Child = $stackPanel
                         $panelcount++
                     }
@@ -186,17 +197,22 @@ function Invoke-WPFUIElements {
                         $label.ToolTip = $entryInfo.Description
                         $label.HorizontalAlignment = "Left"
                         $label.FontSize = $theme.FontSize
-                        $label.Foreground = $theme.MainForegroundColor
+                        $label.SetResourceReference([Windows.Controls.Control]::ForegroundProperty, "MainForegroundColor")
                         $dockPanel.Children.Add($label) | Out-Null
                         $stackPanel.Children.Add($dockPanel) | Out-Null
 
                         $sync[$entryInfo.Name] = $checkBox
 
-                        $sync[$entryInfo.Name].IsChecked = Get-WinUtilToggleStatus $sync[$entryInfo.Name].Name
+                        $sync[$entryInfo.Name].IsChecked = (Get-WinUtilToggleStatus $entryInfo.Name)
 
-                        $sync[$entryInfo.Name].Add_Click({
+                        $sync[$entryInfo.Name].Add_Checked({
                             [System.Object]$Sender = $args[0]
-                            Invoke-WPFToggle $Sender.name
+                            Invoke-WinUtilTweaks $sender.name
+                        })
+
+                        $sync[$entryInfo.Name].Add_Unchecked({
+                            [System.Object]$Sender = $args[0]
+                            Invoke-WinUtiltweaks $sender.name -undo $true
                         })
                     }
 
@@ -207,14 +223,14 @@ function Invoke-WPFUIElements {
                         $toggleButton.HorizontalAlignment = "Left"
                         $toggleButton.Height = $theme.TabButtonHeight
                         $toggleButton.Width = $theme.TabButtonWidth
-                        $toggleButton.Background = $theme.ButtonInstallBackgroundColor
-                        $toggleButton.Foreground = [Windows.Media.Brushes]::White
+                        $toggleButton.SetResourceReference([Windows.Controls.Control]::BackgroundProperty, "ButtonInstallBackgroundColor")
+                        $toggleButton.SetResourceReference([Windows.Controls.Control]::ForegroundProperty, "MainForegroundColor")
                         $toggleButton.FontWeight = [Windows.FontWeights]::Bold
 
                         $textBlock = New-Object Windows.Controls.TextBlock
                         $textBlock.FontSize = $theme.TabButtonFontSize
                         $textBlock.Background = [Windows.Media.Brushes]::Transparent
-                        $textBlock.Foreground = $theme.ButtonInstallForegroundColor
+                        $textBlock.SetResourceReference([Windows.Controls.Control]::ForegroundProperty, "ButtonInstallForegroundColor")
 
                         $underline = New-Object Windows.Documents.Underline
                         $underline.Inlines.Add($entryInfo.name -replace "(.).*", "`$1")
@@ -292,7 +308,7 @@ function Invoke-WPFUIElements {
                         $checkBox.FontSize = $theme.FontSize
                         $checkBox.ToolTip = $entryInfo.Description
                         $checkBox.Margin = $theme.CheckBoxMargin
-                        if ($entryInfo.Checked) {
+                        if ($entryInfo.Checked -eq $true) {
                             $checkBox.IsChecked = $entryInfo.Checked
                         }
                         $horizontalStackPanel.Children.Add($checkBox) | Out-Null
@@ -303,13 +319,6 @@ function Invoke-WPFUIElements {
                             $textBlock.Text = "(?)"
                             $textBlock.ToolTip = $entryInfo.Link
                             $textBlock.Style = $HoverTextBlockStyle
-
-                            # Add event handler for click to open link
-                            $handler = [System.Windows.Input.MouseButtonEventHandler]{
-                                param($sender, $e)
-                                Start-Process $sender.ToolTip.ToString()
-                            }
-                            $textBlock.AddHandler([Windows.Controls.TextBlock]::MouseLeftButtonUpEvent, $handler)
 
                             $horizontalStackPanel.Children.Add($textBlock) | Out-Null
 

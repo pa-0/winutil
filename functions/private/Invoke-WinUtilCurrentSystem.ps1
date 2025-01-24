@@ -13,6 +13,16 @@ Function Invoke-WinUtilCurrentSystem {
     param(
         $CheckBox
     )
+    if ($CheckBox -eq "choco") {
+        $apps = (choco list | Select-String -Pattern "^\S+").Matches.Value
+        $filter = Get-WinUtilVariables -Type Checkbox | Where-Object {$psitem -like "WPFInstall*"}
+        $sync.GetEnumerator() | Where-Object {$psitem.Key -in $filter} | ForEach-Object {
+            $dependencies = @($sync.configs.applications.$($psitem.Key).choco -split ";")
+            if ($dependencies -in $apps) {
+                Write-Output $psitem.name
+            }
+        }
+    }
 
     if ($checkbox -eq "winget") {
 
@@ -33,7 +43,7 @@ Function Invoke-WinUtilCurrentSystem {
 
     if($CheckBox -eq "tweaks") {
 
-        if(!(Test-Path 'HKU:\')) {New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS}
+        if(!(Test-Path 'HKU:\')) {$null = (New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS)}
         $ScheduledTasks = Get-ScheduledTask
 
         $sync.configs.tweaks | Get-Member -MemberType NoteProperty | ForEach-Object {

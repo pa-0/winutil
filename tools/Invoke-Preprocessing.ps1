@@ -1,4 +1,4 @@
- function Invoke-Preprocessing {
+function Invoke-Preprocessing {
     <#
         .SYNOPSIS
         A function that does Code Formatting using RegEx, useful when trying to force specific coding standard(s) to a project.
@@ -39,7 +39,7 @@
         .EXAMPLE
         Invoke-Preprocessing -ThrowExceptionOnEmptyFilesList -WorkingDir "DRIVE:\Path\To\Folder\" -ExcludedFiles @('file.txt', '.\.git\', '*.png') -ProgressStatusMessage "Doing Preprocessing"
 
-        Same as Example No. 1, but will throw an exception when 'Invoke-Preprocessing' function doesn't find any files in 'WorkingDir' (not including 'ExcludedFiles' list).
+        Same as Example No. 1, but uses '-ThrowExceptionOnEmptyFilesList', which's an optional parameter that'll make 'Invoke-Preprocessing' throw an exception when no files are found in 'WorkingDir' (not including the ExcludedFiles, of course), useful when you want to double check your parameters & you're sure there's files to process in the 'WorkingDir'.
 
         .EXAMPLE
         Invoke-Preprocessing -Skip -WorkingDir "DRIVE:\Path\To\Folder\" -ExcludedFiles @('file.txt', '.\.git\', '*.png') -ProgressStatusMessage "Doing Preprocessing"
@@ -47,7 +47,7 @@
         Same as Example No. 1, but uses '-SkipExcludedFilesValidation', which'll skip the validation step for 'ExcludedFiles' list. This can be useful when 'ExcludedFiles' list is generated from another function, or from unreliable source (you can't guarantee every item in list is a valid path), but you want to silently continue through the function.
     #>
 
-     param (
+    param (
         [Parameter(position=0)]
         [switch]$SkipExcludedFilesValidation,
 
@@ -66,28 +66,51 @@
 
         [Parameter(position=5)]
         [string]$ProgressActivity = "Preprocessing"
-     )
+    )
 
     if (-NOT (Test-Path -PathType Container -Path "$WorkingDir")) {
         throw "[Invoke-Preprocessing] Invalid Paramter Value for 'WorkingDir', passed value: '$WorkingDir'. Either the path is a File or Non-Existing/Invlid, please double check your code."
     }
 
-    $count = $ExcludedFiles.Count
-    if ((-NOT ($count -eq 0)) -AND (-NOT $SkipExcludedFilesValidation)) {
-        for ($i = 0; $i -lt $count; $i++) {
-            $excludedFile = $ExcludedFiles[$i]
+    $InternalExcludedFiles = [System.Collections.Generic.List[string]]::new($ExcludedFiles.Count)
+    ForEach ($excludedFile in $ExcludedFiles) {
+        $InternalExcludedFiles.Add($excludedFile) | Out-Null
+    }
+
+    # Validate the ExcludedItems List before continuing on,
+    # that's if there's a list in the first place, and '-SkipInternalExcludedFilesValidation' was not provided.
+    if ($ExcludedFiles.Count -gt 0) {
+        ForEach ($excludedFile in $ExcludedFiles) {
             $filePath = "$(($WorkingDir -replace ('\\$', '')) + '\' + ($excludedFile -replace ('\.\\', '')))"
-            if (-NOT (Get-ChildItem -Recurse -Path "$filePath" -File)) {
-                $failedFilesList += "'$filePath', "
-            }
+            $files = Get-ChildItem -Recurse -Path "$filePath" -File -Force
+            if ($files.Count -gt 0) {
+                ForEach ($file in $files) {
+                    $InternalExcludedFiles.Add("$($file.FullName)") | Out-Null
+                }
+            } else { $failedFilesList += "'$filePath', " }
         }
         $failedFilesList = $failedFilesList -replace (',\s*$', '')
-        if (-NOT $failedFilesList -eq "") {
-            throw "[Invoke-Preprocessing] One or more File Paths & File Patterns were not found, you can use '-SkipExcludedFilesValidation' switch to skip this check, and the failed files are: $failedFilesList"
+        if ((-not $failedFilesList -eq "") -and (-not $SkipExcludedFilesValidation)) {
+            throw "[Invoke-Preprocessing] One or more File Paths and/or File Patterns were not found, you can use '-SkipExcludedFilesValidation' switch to skip this check, the failed to validate are: $failedFilesList"
         }
     }
 
-    $files = Get-ChildItem $WorkingDir -Recurse -Exclude $ExcludedFiles -File
+    # Get Files List
+    [System.Collections.ArrayList]$files = Get-ChildItem -LiteralPath $WorkingDir -Recurse -Exclude $InternalExcludedFiles -File -Force
+
+    # Only keep the 'FullName' Property for every entry in the list
+    for ($i = 0; $i -lt $files.Count; $i++) {
+        $file = $files[$i]
+        $files[$i] = $file.FullName
+    }
+
+    # If a file(s) are found in Exclude List,
+    # Remove the file from files list.
+    ForEach ($excludedFile in $InternalExcludedFiles) {
+        $index = $files.IndexOf("$excludedFile")
+        if ($index -ge 0) { $files.RemoveAt($index) }
+    }
+
     $numOfFiles = $files.Count
 
     if ($numOfFiles -eq 0) {
@@ -99,26 +122,11 @@
     }
 
     for ($i = 0; $i -lt $numOfFiles; $i++) {
-        $file = $files[$i]
-
-        # If the file is in Exclude List, don't proceed to check/modify said file.
-        $fileIsExcluded = $False
-        for ($j = 0; $j -lt $excludedFiles.Count; $j++) {
-            $excluded = $excludedFiles[$j]
-            $strToCompare = ($excluded) -replace ('^\.\\', '')
-            if ($file.FullName.Contains("$strToCompare")) {
-                $fileIsExcluded = $True
-                break
-            }
-        }
-
-        if ($fileIsExcluded) {
-            continue
-        }
+        $fullFileName = $files[$i]
 
         # TODO:
         #   make more formatting rules, and document them in WinUtil Official Documentation
-        (Get-Content "$file").TrimEnd() `
+        (Get-Content "$fullFileName").TrimEnd() `
             -replace ('\t', '    ') `
             -replace ('\)\s*\{', ') {') `
             -replace ('(?<keyword>if|for|foreach)\s*(?<condition>\([.*?]\))\s*\{', '${keyword} ${condition} {') `
@@ -129,8 +137,8 @@
             -replace ('\}\s*Catch', '} catch') `
             -replace ('\}\s*Catch\s*(?<exceptions>(\[.*?\]\s*(\,)?\s*)+)\s*\{', '} catch ${exceptions} {') `
             -replace ('\}\s*Catch\s*(?<exceptions>\[.*?\])\s*\{', '} catch ${exceptions} {') `
-            -replace ('(?<parameter_type>\[.*?\])\s*(?<str_after_type>\$.*?(,|\s*\)))', '${parameter_type}${str_after_type}') `
-        | Set-Content "$file"
+            -replace ('(?<parameter_type>\[[^$0-9]+\])\s*(?<str_after_type>\$.*?)', '${parameter_type}${str_after_type}') `
+        | Set-Content "$fullFileName"
 
         Write-Progress -Activity $ProgressActivity -Status "$ProgressStatusMessage - Finished $i out of $numOfFiles" -PercentComplete (($i/$numOfFiles)*100)
     }
